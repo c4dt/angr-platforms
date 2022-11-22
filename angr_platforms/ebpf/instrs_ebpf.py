@@ -4,28 +4,20 @@ Collections of eBPF instructions
 
 import abc
 import bitstring
+import logging
+from typing import Mapping, MutableMapping
+
+from pyvex.lifting.util import Instruction, ParseError, Type, JumpKind, VexValue
 
 from .instr_enums import \
     InstrClass, OpcodeSrc, AluOrAlu64Operation, JmpOperation, Jmp32Operation, OpcodeMode, OperandSize
-from pyvex.lifting.util import Instruction, ParseError, Type, JumpKind, VexValue
-
-import logging
 
 logger = logging.getLogger(__name__)
 
 REGISTER_TYPE = Type.int_64
+IMMEDIATE_TYPE = Type.int_32
 REGULAR_INSN_SZ = 8  # in bytes
 
-"""
-How access to registers and memory typed:
-    - Except for `BPF_IMM | DW | LD`, all instructions are 8-byte, so the immediate must be 32-bits long. This means 
-    whenever we use an immediate as an instruction operand, we give it a type `Type.int_32`. I'm not sure whether it 
-    should be uint or int though -- TODO: need to check int vs uint in other lifters
-    
-    - Registers are assumed to be `Type.int_64` but 2 questions:
-        - how to handle 32-bit sub-registers
-        - int vs uint
-"""
 
 
 class EbpfInstruction(Instruction, metaclass=abc.ABCMeta):
@@ -40,16 +32,16 @@ class EbpfInstruction(Instruction, metaclass=abc.ABCMeta):
     opcode structure).
     """
 
-    bin_format = 8 * 'O' + 4 * 's' + 4 * 'd' + 16 * 'o' + 32 * 'i'
+    bin_format = 'O' * 8 + 's' * 4 + 'd' * 4 + 'o' * 16 + 'i' * 32
     """
     Overrides `bin_format` property in `Instruction`
-    
+
     Look up what `bin_format` is in the documentation for `Instruction` class.
-    
-    An eBPF instruction has the following format  
+
+    An eBPF instruction has the following format
         op:8 dst_reg:4 src_reg:4 off:16 imm:32
-    where 
-        op - opcode, dst_reg - destination register, `src_reg` - source register, 
+    where
+        op - opcode, dst_reg - destination register, `src_reg` - source register,
         and `imm` - 32-bit immediate (little-endian)
     """
 
@@ -69,11 +61,9 @@ class EbpfInstruction(Instruction, metaclass=abc.ABCMeta):
         self.dst_reg = int(self.data['d'], 2)
         self.src_reg = int(self.data['s'], 2)
         self.offset = bitstring.Bits(bin=self.data['o']).intle
-
-        assert (len(self.data['i']) != 32 or len(self.data['i']) != 64)
         self.imm = bitstring.Bits(bin=self.data['i']).intle
 
-    def match_instruction(self, data, bitstrm):
+    def match_instruction(self, data: MutableMapping[str, str], bitstrm: bitstring.BitStream) -> Mapping[str, str]:
         """
         Match an instruction by instruction class.
 
@@ -83,8 +73,8 @@ class EbpfInstruction(Instruction, metaclass=abc.ABCMeta):
 
         # note: here we can't use `self.opcode` because `match_instruction` is used in the parent-class constructor
         # so if we call `self.opcode`, we try to get `.opcode` before it's set (after the call to parent constructor)
-        opcode = int(data['O'], 2)  # type: int
-        opcode_instr_class = InstrClass.extract_from_opcode(opcode)  # type: InstrClass
+        opcode = int(data['O'], 2)
+        opcode_instr_class = InstrClass.extract_from_opcode(opcode) 
 
         if not (self._instr_class == opcode_instr_class):
             raise ParseError("Invalid opcode instruction class, "
@@ -241,7 +231,7 @@ class Alu64TwoOperandInstruction(Alu64Instruction, metaclass=abc.ABCMeta):
     def fetch_operands(self):
         dst_reg = self.get(self.dst_reg, REGISTER_TYPE)
         if self._operation_src == OpcodeSrc.IMM:
-            return self.constant(self.imm, Type.int_32), dst_reg
+            return self.constant(self.imm, IMMEDIATE_TYPE).widen_unsigned(REGISTER_TYPE), dst_reg
         elif self._operation_src == OpcodeSrc.SRC_REG:
             return self.get(self.src_reg, REGISTER_TYPE), dst_reg
         else:
@@ -303,9 +293,9 @@ class Instruction_BpfLSH(Alu64Instruction):
     def fetch_operands(self):
         dst_reg = self.get(self.dst_reg, REGISTER_TYPE)
         if self._operation_src == OpcodeSrc.IMM:
-            return self.constant(self.imm, Type.int_8), dst_reg
+            return self.constant(self.imm, IMMEDIATE_TYPE).widen_unsigned(REGISTER_TYPE), dst_reg
         elif self._operation_src == OpcodeSrc.SRC_REG:
-            return self.get(self.src_reg, Type.int_8), dst_reg
+            return self.get(self.src_reg, REGISTER_TYPE), dst_reg
         else:
             assert False
 
@@ -351,8 +341,9 @@ class Instruction_BpfMov(Alu64Instruction):
 
     def fetch_operands(self):
         if self._operation_src == OpcodeSrc.IMM:
-            return self.constant(self.imm, Type.int_32),
+            return self.constant(self.imm, IMMEDIATE_TYPE).widen_unsigned(REGISTER_TYPE),
         elif self._operation_src == OpcodeSrc.SRC_REG:
+            print('bpf_mov_64.fetch_operands:', self.src_reg)
             return self.get(self.src_reg, REGISTER_TYPE),
         else:
             assert False
@@ -368,9 +359,9 @@ class Instruction_BpfARSH(Alu64Instruction):
     def fetch_operands(self):
         dst_reg = self.get(self.dst_reg, REGISTER_TYPE)
         if self._operation_src == OpcodeSrc.IMM:
-            return self.constant(self.imm, Type.int_8), dst_reg
+            return self.constant(self.imm, IMMEDIATE_TYPE).widen_unsigned(REGISTER_TYPE), dst_reg
         elif self._operation_src == OpcodeSrc.SRC_REG:
-            return self.get(self.src_reg, Type.int_8), dst_reg
+            return self.get(self.src_reg, REGISTER_TYPE), dst_reg
         else:
             assert False
 
@@ -525,7 +516,7 @@ class Instruction_LD(LoadInstruction):
         # for how LD instruction class works,
         # see https://github.com/qmonnet/rbpf/blob/6c524b3669d7b19736ceaf8d155b43aee93479c3/src/jit.rs#L528-L564
         if self.mode == OpcodeMode.BPF_IMM:
-            return self.constant(self.imm, self.size.to_type()),
+            return self.constant(self.imm, self.size.to_type()).widen_unsigned(REGISTER_TYPE),
         elif self.mode == OpcodeMode.BPF_ABS:
             raise Exception("Not implemented")  # FIXME
         elif self.mode == OpcodeMode.BPF_IND:
@@ -553,7 +544,7 @@ class Instruction_LDX(LoadInstruction):
         if self.mode == OpcodeMode.BPF_MEM:
             type_ = self.size.to_type()
             src = self.get(self.src_reg, REGISTER_TYPE)
-            return self.load(src + self.offset, type_),
+            return self.load(src + self.offset, type_).widen_unsigned(REGISTER_TYPE),
         elif self.mode == OpcodeMode.BPF_IMM or \
                 self.mode == OpcodeMode.BPF_ABS or \
                 self.mode == OpcodeMode.BPF_IND or \
@@ -576,7 +567,7 @@ class Instruction_ST(LoadOrStoreInstruction):
     def fetch_operands(self):
         type_ = self.size.to_type()
         if self.mode == OpcodeMode.BPF_IMM:
-            return self.constant(self.imm, type_),
+            return self.constant(self.imm, type_).widen_unsigned(REGISTER_TYPE),
         elif self.mode == OpcodeMode.BPF_ABS or \
                 self.mode == OpcodeMode.BPF_IND or \
                 self.mode == OpcodeMode.BPF_MEM or \
@@ -598,10 +589,10 @@ class Instruction_STX(LoadOrStoreInstruction):
     def fetch_operands(self):
         type_ = self.size.to_type()
         if self.mode == OpcodeMode.BPF_MEM:
-            return self.get(self.src_reg, type_), None
+            return self.get(self.src_reg, type_).widen_unsigned(REGISTER_TYPE), None
         elif self.mode == OpcodeMode.BPF_XADD:  # TODO: real atomic add
             assert (self.size >= OperandSize.BPF_W)  # this op doesn't support 1 or 2 byte operands
-            return self.get(self.src_reg, type_), self.get(self.dst_reg, type_)
+            return self.get(self.src_reg, type_).widen_unsigned(REGISTER_TYPE), self.get(self.dst_reg, type_).widen_unsigned(REGISTER_TYPE)
         elif self.mode == OpcodeMode.BPF_IMM or \
                 self.mode == OpcodeMode.BPF_ABS or \
                 self.mode == OpcodeMode.BPF_IND:

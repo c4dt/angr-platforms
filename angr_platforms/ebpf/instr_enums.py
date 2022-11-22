@@ -1,7 +1,3 @@
-from enum import IntEnum
-
-from pyvex.lifting.util import Type
-
 """
 General overview of eBPF instructions (see more details in comments below):
 
@@ -38,6 +34,10 @@ Three LSB bits store instruction class which is one of:
   BPF_JMP32 0x06
   BPF_ALU64 0x07
 """
+
+from enum import IntEnum
+
+from pyvex.lifting.util import Type
 
 INSTRUCTION_CLASS_BITS = 7
 

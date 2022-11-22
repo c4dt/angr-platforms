@@ -4,7 +4,7 @@ from angr.calling_conventions import register_default_cc, SimRegArg, SimStackArg
 from angr.simos import SimOS, register_simos
 from angr.sim_procedure import SimProcedure
 
-from . import ArchEbpf
+from .arch_ebpf import ArchExtendedBPF
 
 
 class ExitProcedureCC(SimCC):
@@ -17,7 +17,7 @@ class ExitSimProcedure(SimProcedure):
 
     def __init__(self):
         super(ExitSimProcedure, self).__init__()
-        self.cc = ExitProcedureCC(ArchEbpf(endness=archinfo.Endness.LE))
+        self.cc = ExitProcedureCC(ArchExtendedBPF(endness=archinfo.Endness.LE))
 
     def run(self, exit_code):
         self.exit(exit_code)
@@ -47,7 +47,7 @@ class SimCcEbpf(SimCC):
     STACKARG_SP_DIFF = 8  # FIXME
     RETURN_ADDR = SimStackArg(0, 8)  # FIXME
     RETURN_VAL = SimRegArg('R0', 8)
-    ARCH = ArchEbpf
+    ARCH = ArchExtendedBPF
 
 
 register_default_cc('eBPF', SimCcEbpf)
