@@ -1,6 +1,6 @@
 int main()
 {
-    int a = 1; 
+    int a = 42; 
     if (a) {
       return a;
     } else {
