@@ -16,7 +16,7 @@ class ArchExtendedBPF(Arch):
         # return value from in-kernel function, and exit value for eBPF
         Register(name="R0", vex_offset=0, size=8),
         # arguments from eBPF program to in-kernel function
-        Register(name="R1", vex_offset=8, size=8),
+        Register(name="R1", vex_offset=8, size=8, default_value=(0, True, ('ctx', 0))),
         Register(name="R2", vex_offset=16, size=8),
         Register(name="R3", vex_offset=24, size=8),
         Register(name="R4", vex_offset=32, size=8),
@@ -30,7 +30,8 @@ class ArchExtendedBPF(Arch):
         Register(name="R10", vex_offset=80, size=8),
 
         # "insn pointer" register, which actually doesn't exist in eBPF ISA
-        Register(name="ip", vex_offset=88, size=8), # TODO needed?
+        Register(name="ip", vex_offset=88, size=8, artificial=True),
     ]
 
+# TODO endianess is host based
 register_arch(["ebpf", "em_bpf"], 64, Endness.LE, ArchExtendedBPF)

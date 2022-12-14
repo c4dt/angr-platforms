@@ -25,7 +25,7 @@ class EbpfInstruction(Instruction, metaclass=abc.ABCMeta):
     Represents an eBPF instruction.
 
     This class is responsible for matching the instruction class (in the sense that
-    we're given a binary stream from an executable, and we match 32 or 64 bit chunks
+    we're given a binary stream from an executable, and we match 64 bit chunks
     of the stream to instructions). The matching happens in a hierarchical manner
     where first we match based on the instruction class. Depending on the class,
     we can then extract the opcode (since different classes can have different
@@ -49,7 +49,7 @@ class EbpfInstruction(Instruction, metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def _instr_class(self):
         """
-        Represents "instruction class", where class is in the eBPF ISA sense, not OOP.
+       Represents "instruction class", where class is in the eBPF ISA sense, not OOP.
 
         Needs to be overridden by subclasses for specific eBPF instruction classes, ie ALU, ALU64, JMP, etc.
         """
@@ -63,7 +63,7 @@ class EbpfInstruction(Instruction, metaclass=abc.ABCMeta):
         self.offset = bitstring.Bits(bin=self.data['o']).intle
         self.imm = bitstring.Bits(bin=self.data['i']).intle
 
-    def match_instruction(self, data: MutableMapping[str, str], bitstrm: bitstring.BitStream) -> Mapping[str, str]:
+    def match_instruction(self, data: MutableMapping[str, str], bitstrm: bitstring.BitStream) -> MutableMapping[str, str]:
         """
         Match an instruction by instruction class.
 
@@ -299,8 +299,8 @@ class Instruction_BpfLSH(Alu64Instruction):
         else:
             assert False
 
-    def compute_result(self, src, dst):
-        return dst << src
+    def compute_result(self, src: VexValue, dst: VexValue) -> VexValue:
+        return dst << src.widen_unsigned(Type.int_8)
 
 
 class Instruction_BpfRSH(Alu64TwoOperandInstruction):
@@ -508,7 +508,8 @@ class Instruction_CALL(JmpInstruction):
     _operation = JmpOperation.BPF_CALL
 
     def compute_result(self, *args):
-        raise Exception('Implement me')
+        addr = self.constant(self.imm, IMMEDIATE_TYPE)
+        return self.jump(None, addr, JumpKind.Call)
 
 
 class Instruction_LD(LoadInstruction):
@@ -589,7 +590,11 @@ class Instruction_STX(LoadOrStoreInstruction):
     def fetch_operands(self):
         type_ = self.size.to_type()
         if self.mode == OpcodeMode.BPF_MEM:
-            return self.get(self.src_reg, type_).widen_unsigned(REGISTER_TYPE), None
+            got = self.get(self.src_reg, type_)
+            if type_ != REGISTER_TYPE:
+                # TODO fails on 64toU64
+                got = got.widen_unsigned(REGISTER_TYPE)
+            return got, None
         elif self.mode == OpcodeMode.BPF_XADD:  # TODO: real atomic add
             assert (self.size >= OperandSize.BPF_W)  # this op doesn't support 1 or 2 byte operands
             return self.get(self.src_reg, type_).widen_unsigned(REGISTER_TYPE), self.get(self.dst_reg, type_).widen_unsigned(REGISTER_TYPE)

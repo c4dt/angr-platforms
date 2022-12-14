@@ -135,7 +135,7 @@ class OpcodeSrc(IntEnum):
     SRC_REG = 0x08
 
     @staticmethod
-    def extract_from_opcode(opcode: int):
+    def extract_from_opcode(opcode: int) -> 'OpcodeSrc':
         return OpcodeSrc(opcode & OPERATION_SRC_BITS)
 
 
@@ -156,7 +156,7 @@ class AluOrAlu64Operation(IntEnum):
     BPF_END = 0xd0  # / * eBPF only: endianness conversion * /
 
     @staticmethod
-    def extract_from_opcode(opcode: int):
+    def extract_from_opcode(opcode: int) -> 'AluOrAlu64Operation':
         return AluOrAlu64Operation(opcode & OPERATION_BITS)
 
 
